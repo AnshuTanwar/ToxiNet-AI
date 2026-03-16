@@ -1,0 +1,11 @@
+rdkit
+xgboost
+shap
+imbalanced-learn
+scikit-learn
+pandas
+numpy
+matplotlib
+streamlit
+plotly
+Pillow
