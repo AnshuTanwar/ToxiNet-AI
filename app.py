@@ -8,6 +8,11 @@ import numpy as np
 import plotly.graph_objects as go
 import plotly.express as px
 import pandas as pd
+from explainer import (
+    load_models, predict_all_endpoints,
+    render_molecule_heatmap, suggest_modifications,
+    risk_level, lipinski_rules
+)
 from rdkit import Chem
 from rdkit.Chem import Draw
 import io
@@ -229,6 +234,91 @@ def render_sidebar(payload):
     return demo_choice
 
 
+def render_lipinski(smiles):
+    data = lipinski_rules(smiles)
+    if data is None:
+        return
+
+    verdict = data["verdict"]
+    core    = data["core_passes"]
+    v_color = (
+        "#1D9E75" if verdict == "Excellent"  else
+        "#EF9F27" if verdict == "Acceptable" else
+        "#E24B4A"
+    )
+
+    st.markdown(
+        f"""
+        <div style="
+            background:#1a1d27;
+            border:1px solid #2a2d3a;
+            border-radius:12px;
+            padding:16px 20px;
+            margin-bottom:8px;
+        ">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;">
+                <div>
+                    <span style="font-size:15px;font-weight:600;color:#fff;">
+                        Lipinski's Rule of Five
+                    </span>
+                    <span style="font-size:12px;color:#666;margin-left:8px;">
+                        Drug-likeness assessment
+                    </span>
+                </div>
+                <div style="text-align:right;">
+                    <span style="
+                        font-size:13px;font-weight:700;
+                        color:{v_color};
+                        background:{v_color}22;
+                        padding:4px 12px;
+                        border-radius:20px;
+                        border:1px solid {v_color}44;
+                    ">{verdict}</span>
+                    <div style="font-size:11px;color:#666;margin-top:3px;">
+                        {core}/4 core rules passed
+                    </div>
+                </div>
+            </div>
+            <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;">
+        """,
+        unsafe_allow_html=True
+    )
+
+    for r in data["rules"]:
+        icon  = "✓" if r["pass"] else "✗"
+        color = "#1D9E75" if r["pass"] else "#E24B4A"
+        bg    = "#0d2b1e" if r["pass"] else "#2b0d0d"
+        border= "#1D9E7544" if r["pass"] else "#E24B4A44"
+        val_str = f"{r['value']}{r['unit']}"
+
+        st.markdown(
+            f"""
+            <div style="
+                background:{bg};
+                border:1px solid {border};
+                border-radius:8px;
+                padding:10px 12px;
+            ">
+                <div style="display:flex;justify-content:space-between;align-items:center;">
+                    <span style="font-size:11px;color:#888;">{r['rule']}</span>
+                    <span style="
+                        font-size:13px;font-weight:700;
+                        color:{color};
+                    ">{icon}</span>
+                </div>
+                <div style="font-size:18px;font-weight:700;color:#fff;margin:4px 0;">
+                    {val_str}
+                </div>
+                <div style="font-size:10px;color:#666;">
+                    Limit: {r['limit']}
+                </div>
+            </div>
+            """,
+            unsafe_allow_html=True
+        )
+
+    st.markdown("</div></div>", unsafe_allow_html=True)
+
 # ── Main app ──────────────────────────────────────────────────────────────────
 
 def main():
@@ -303,6 +393,10 @@ def main():
     # ── Two-column layout: radar + molecule ──────────────────────────────────
     st.markdown('<div class="section-header">Toxicity fingerprint</div>', unsafe_allow_html=True)
     col_radar, col_mol = st.columns([3, 2])
+
+    # Lipinski Drug-likeness panel
+    st.markdown('<div class="section-header">Drug-likeness (Lipinski\'s Rule of Five)</div>', unsafe_allow_html=True)
+    render_lipinski(smiles)
 
     with col_radar:
         st.plotly_chart(make_radar_chart(results), use_container_width=True)

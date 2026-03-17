@@ -254,3 +254,80 @@ def _feature_to_modification_hint(feat_name, smiles):
         return "Modify the molecular substructure associated with this fingerprint bit — consider scaffold hopping"
 
     return "Structural optimisation suggested for this molecular region"
+
+def lipinski_rules(smiles):
+    """
+    Check Lipinski's Rule of Five for drug-likeness.
+    Returns dict with each rule, value, pass/fail, and overall verdict.
+    """
+    mol = Chem.MolFromSmiles(smiles)
+    if mol is None:
+        return None
+
+    from rdkit.Chem import Descriptors as D
+    mw      = D.MolWt(mol)
+    logp    = D.MolLogP(mol)
+    hdonors = D.NumHDonors(mol)
+    haccept = D.NumHAcceptors(mol)
+    tpsa    = D.TPSA(mol)
+    rotbonds= D.NumRotatableBonds(mol)
+
+    rules = [
+        {
+            "rule":    "Molecular weight",
+            "value":   round(mw, 1),
+            "unit":    "Da",
+            "limit":   "≤ 500 Da",
+            "pass":    mw <= 500,
+            "detail":  "Large molecules have poor oral absorption"
+        },
+        {
+            "rule":    "LogP (lipophilicity)",
+            "value":   round(logp, 2),
+            "unit":    "",
+            "limit":   "≤ 5",
+            "pass":    logp <= 5,
+            "detail":  "High logP = poor solubility, membrane toxicity risk"
+        },
+        {
+            "rule":    "H-bond donors",
+            "value":   hdonors,
+            "unit":    "",
+            "limit":   "≤ 5",
+            "pass":    hdonors <= 5,
+            "detail":  "Too many donors = poor membrane permeability"
+        },
+        {
+            "rule":    "H-bond acceptors",
+            "value":   haccept,
+            "unit":    "",
+            "limit":   "≤ 10",
+            "pass":    haccept <= 10,
+            "detail":  "Too many acceptors = poor oral bioavailability"
+        },
+        {
+            "rule":    "TPSA",
+            "value":   round(tpsa, 1),
+            "unit":    "Ų",
+            "limit":   "≤ 140 Ų",
+            "pass":    tpsa <= 140,
+            "detail":  "High TPSA = poor GI absorption and CNS penetration"
+        },
+        {
+            "rule":    "Rotatable bonds",
+            "value":   rotbonds,
+            "unit":    "",
+            "limit":   "≤ 10",
+            "pass":    rotbonds <= 10,
+            "detail":  "Excess flexibility reduces oral bioavailability"
+        },
+    ]
+
+    core_passes = sum(1 for r in rules[:4] if r["pass"])  # Ro5 = first 4
+    verdict = (
+        "Excellent"  if core_passes == 4 else
+        "Acceptable" if core_passes == 3 else
+        "Poor"       if core_passes == 2 else
+        "Rejected"
+    )
+    return {"rules": rules, "verdict": verdict, "core_passes": core_passes}
