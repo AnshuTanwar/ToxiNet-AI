@@ -18,6 +18,7 @@ from explainer import (
     render_molecule_heatmap, suggest_modifications,
     risk_level, lipinski_rules
 )
+from reporter import generate_pdf_report
 
 st.set_page_config(
     page_title="SafeDrug AI",
@@ -742,6 +743,203 @@ def render_single_tab(payload, demo_choice):
         "SHAP TreeExplainer for molecular interpretability · For research use only."
     )
 
+    # ── Export PDF report ────────────────────────────────────────────────────
+    st.markdown('<div class="section-header">Export report</div>', unsafe_allow_html=True)
+
+    col_pdf, col_info = st.columns([2, 3])
+    with col_pdf:
+        if st.button("Generate PDF report", type="primary", use_container_width=True):
+            with st.spinner("Building PDF report..."):
+                from explainer import lipinski_rules
+                lip_data    = lipinski_rules(smiles)
+                suggestions = suggest_modifications(smiles, results, payload)
+                try:
+                    pdf_bytes = generate_pdf_report(smiles, results, lip_data, suggestions)
+                    mol_name  = smiles[:12].replace("/","").replace("\\","") + "_safedrug"
+                    st.download_button(
+                        label="Download PDF",
+                        data=pdf_bytes,
+                        file_name=f"{mol_name}_report.pdf",
+                        mime="application/pdf",
+                        use_container_width=True,
+                    )
+                    st.success("PDF ready — click Download PDF above.")
+                except Exception as e:
+                    st.error(f"PDF generation failed: {e}")
+                    st.info("Make sure `kaleido` is installed: pip install kaleido")
+    with col_info:
+        st.markdown("""
+        <div style="background:#1a1d27;border:1px solid #2a2d3a;border-radius:8px;padding:12px 16px;font-size:13px;color:#aaa;">
+            The PDF report includes:<br>
+            &nbsp;&nbsp;· Molecule structure image<br>
+            &nbsp;&nbsp;· Toxicity fingerprint radar chart<br>
+            &nbsp;&nbsp;· Full 12-endpoint risk table<br>
+            &nbsp;&nbsp;· Lipinski drug-likeness panel<br>
+            &nbsp;&nbsp;· SHAP feature contributions chart<br>
+            &nbsp;&nbsp;· Structural modification suggestions
+        </div>
+        """, unsafe_allow_html=True)
+
+
+def render_sketcher_tab(payload):
+    st.markdown('<div class="section-header">Molecule sketcher</div>', unsafe_allow_html=True)
+    st.caption("Draw your molecule visually. Click 'Get SMILES' then copy it to the Single molecule tab.")
+
+    jsme_html = """
+    <!DOCTYPE html>
+    <html>
+    <head>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            background: #0f1117;
+            font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+            padding: 12px;
+        }
+        #sketcher-wrap {
+            background: #ffffff;
+            border-radius: 10px;
+            overflow: hidden;
+            width: 100%;
+            min-height: 420px;
+        }
+        .controls {
+            margin-top: 12px;
+            display: flex;
+            gap: 10px;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+        #get-btn {
+            background: #378ADD; color: white; border: none;
+            border-radius: 6px; padding: 10px 22px;
+            font-size: 14px; font-weight: 600; cursor: pointer;
+        }
+        #get-btn:hover { background: #2a6fb5; }
+        #copy-btn {
+            background: #1a1d27; color: #ccc;
+            border: 1px solid #2a2d3a; border-radius: 6px;
+            padding: 10px 16px; font-size: 13px; cursor: pointer;
+        }
+        #smiles-out {
+            font-family: monospace; font-size: 13px; color: #7eb8f7;
+            background: #0f1117; padding: 10px 14px; border-radius: 6px;
+            border: 1px solid #2a2d3a; flex: 1; word-break: break-all;
+        }
+        .tip {
+            margin-top: 10px; background: #1a1d27;
+            border: 1px solid #2a2d3a; border-radius: 8px;
+            padding: 12px 16px; font-size: 13px; color: #aaa; line-height: 1.8;
+        }
+        .tip strong { color: #fff; }
+        .tip b { color: #378ADD; }
+        #status {
+            font-size: 12px; color: #888; margin-top: 6px;
+        }
+    </style>
+    </head>
+    <body>
+
+    <div id="sketcher-wrap">
+        <div id="jsme_container"></div>
+    </div>
+
+    <div class="controls">
+        <button id="get-btn" onclick="getSmiles()">Get SMILES from drawing</button>
+        <span id="smiles-out">Draw a molecule above, then click Get SMILES</span>
+        <button id="copy-btn" onclick="copySmiles()">Copy</button>
+    </div>
+    <div id="status">Loading sketcher...</div>
+
+    <div class="tip">
+        <strong>How to use:</strong><br>
+        1. Click a bond type from the left toolbar, then click on the canvas to draw<br>
+        2. Click atom symbols (C, N, O...) to place specific atoms<br>
+        3. Click <b>Get SMILES from drawing</b> when done<br>
+        4. Copy and paste into the <strong>Single molecule</strong> tab
+    </div>
+
+    <script>
+    // Load JSME from the official server
+    var script = document.createElement('script');
+    script.src = 'https://jsme-editor.github.io/dist/jsme/jsme.nocache.js';
+    script.onload = function() {
+        document.getElementById('status').innerText = 'Sketcher ready.';
+    };
+    script.onerror = function() {
+        document.getElementById('status').innerText =
+            'Could not load sketcher — check internet connection.';
+        document.getElementById('sketcher-wrap').innerHTML =
+            '<div style="padding:40px;text-align:center;color:#888;font-size:14px;">' +
+            'Sketcher requires internet connection to load.<br><br>' +
+            'You can type SMILES directly in the Single molecule tab instead.</div>';
+    };
+    document.head.appendChild(script);
+
+    // JSME calls this automatically when ready
+    function jsmeOnLoad() {
+        try {
+            window.jsmeApplet = new JSApplet.JSME("jsme_container", "100%", "420px", {
+                "options": "query,hydrogens,oldlook"
+            });
+            document.getElementById('status').innerText = 'Sketcher ready — draw your molecule above.';
+        } catch(e) {
+            document.getElementById('status').innerText = 'Init error: ' + e.message;
+        }
+    }
+
+    function getSmiles() {
+        if (!window.jsmeApplet) {
+            document.getElementById('smiles-out').innerText =
+                'Sketcher still loading — wait a moment.';
+            return;
+        }
+        try {
+            var smi = window.jsmeApplet.smiles();
+            if (!smi || smi.trim() === '' || smi === '*') {
+                document.getElementById('smiles-out').innerText =
+                    'Canvas is empty — draw a molecule first.';
+                return;
+            }
+            document.getElementById('smiles-out').innerText = smi;
+            document.getElementById('status').innerText = 'SMILES extracted successfully.';
+        } catch(e) {
+            document.getElementById('smiles-out').innerText = 'Error: ' + e.message;
+        }
+    }
+
+    function copySmiles() {
+        var text = document.getElementById('smiles-out').innerText;
+        var skip = ['Draw a molecule', 'Canvas is empty', 'Error', 'loading', 'still'];
+        if (skip.some(function(s){ return text.startsWith(s); })) return;
+        navigator.clipboard.writeText(text).then(function() {
+            var btn = document.getElementById('copy-btn');
+            btn.innerText = 'Copied!';
+            btn.style.color = '#1D9E75';
+            setTimeout(function() {
+                btn.innerText = 'Copy';
+                btn.style.color = '#ccc';
+            }, 1500);
+        }).catch(function() {
+            // Fallback if clipboard API blocked
+            var el = document.createElement('textarea');
+            el.value = text;
+            document.body.appendChild(el);
+            el.select();
+            document.execCommand('copy');
+            document.body.removeChild(el);
+            document.getElementById('copy-btn').innerText = 'Copied!';
+            setTimeout(function() {
+                document.getElementById('copy-btn').innerText = 'Copy';
+            }, 1500);
+        });
+    }
+    </script>
+    </body>
+    </html>
+    """
+
+    st.components.v1.html(jsme_html, height=660, scrolling=False)
 
 def main():
     payload     = get_models()
@@ -758,8 +956,8 @@ def main():
         st.code("python train.py --data tox21.csv", language="bash")
         return
 
-    tab_single, tab_compare, tab_batch = st.tabs([
-        "Single molecule", "Compare molecules", "Batch screening"
+    tab_single, tab_compare, tab_batch, tab_sketch = st.tabs([
+        "Single molecule", "Compare molecules", "Batch screening", "Molecule sketcher"
     ])
     with tab_single:
         render_single_tab(payload, demo_choice)
@@ -767,6 +965,8 @@ def main():
         render_comparison_tab(payload)
     with tab_batch:
         render_batch_tab(payload)
+    with tab_sketch:
+        render_sketcher_tab(payload)
 
 
 if __name__ == "__main__":
