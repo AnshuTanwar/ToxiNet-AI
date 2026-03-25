@@ -1127,9 +1127,17 @@ def main():
     </p>""", unsafe_allow_html=True)
 
     if payload is None:
-        st.error("Models not found. Please run `python train.py --data tox21.csv` first.")
-        st.code("python train.py --data tox21.csv", language="bash")
-        return
+        st.info("Models not found. Initialising dynamic training sequence (this takes ~60 seconds)...")
+        import subprocess
+        try:
+            with st.spinner("Training XGBoost models on Tox21 and evaluating SHAP explainer..."):
+                subprocess.run(["python", "train.py", "--data", "tox21.csv"], check=True)
+            st.success("Models trained successfully! Reloading...")
+            st.rerun()
+        except Exception as e:
+            st.error(f"Training failed: {e}")
+            st.code("python train.py --data tox21.csv", language="bash")
+            return
 
     tab_single, tab_compare, tab_batch, tab_sketch = st.tabs([
         "Single molecule", "Compare molecules", "Batch screening", "Molecule sketcher"
