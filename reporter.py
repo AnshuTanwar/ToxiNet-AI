@@ -1,7 +1,4 @@
-"""
-SafeDrug AI — PDF Report Generator
-Generates a clean single-page PDF report for any molecule analysis.
-"""
+
 
 import io
 import math
@@ -482,7 +479,7 @@ def _build_footer(styles):
     elements = []
     elements.append(HRFlowable(width="100%", thickness=0.5, color=C_BORDER, spaceBefore=6))
     elements.append(Paragraph(
-        "SafeDrug AI  ·  Trained on Tox21 (7,831 compounds, 12 assay endpoints)  ·  "
+        "ToxiNet AI  ·  Trained on Tox21 (7,831 compounds, 12 assay endpoints)  ·  "
         "SHAP TreeExplainer for molecular interpretability  ·  For research use only.",
         styles["small"]
     ))
@@ -502,8 +499,8 @@ def generate_pdf_report(smiles, results, lip_data, suggestions):
         pagesize=A4,
         leftMargin=MARGIN, rightMargin=MARGIN,
         topMargin=MARGIN,  bottomMargin=MARGIN,
-        title="SafeDrug AI Report",
-        author="SafeDrug AI",
+        title="ToxiNet AI Report",
+        author="ToxiNet AI",
     )
 
     styles   = _styles()

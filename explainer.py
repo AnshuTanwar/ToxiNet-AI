@@ -1,9 +1,4 @@
-"""
-SafeDrug AI — Phase 3
-SHAP explainability engine.
-This module is imported by the Streamlit app.
-It handles: prediction, SHAP explanation, atom highlighting, modification suggestions.
-"""
+
 
 import pickle
 import warnings
@@ -44,7 +39,8 @@ def smiles_to_features(smiles):
     desc_names = [d[0] for d in Descriptors.descList]
     calc = MoleculeDescriptors.MolecularDescriptorCalculator(desc_names)
     desc_vals = np.array(calc.CalcDescriptors(mol), dtype=np.float32)
-    desc_vals = np.nan_to_num(desc_vals, nan=0.0, posinf=0.0, neginf=0.0)
+    desc_vals[np.isinf(desc_vals)] = np.nan
+    desc_vals = np.clip(desc_vals, -1e6, 1e6)
 
     features = np.concatenate([fp_arr, desc_vals]).reshape(1, -1)
     feat_names = [f"morgan_{i}" for i in range(MORGAN_BITS)] + desc_names

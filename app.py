@@ -1,8 +1,3 @@
-"""
-SafeDrug AI — Complete App
-Streamlit dashboard. Run with: streamlit run app.py
-"""
-
 import streamlit as st
 import numpy as np
 import plotly.graph_objects as go
@@ -21,7 +16,7 @@ from explainer import (
 from reporter import generate_pdf_report
 
 st.set_page_config(
-    page_title="SafeDrug AI",
+    page_title="ToxiNet AI",
     page_icon="🧬",
     layout="wide",
     initial_sidebar_state="expanded",
@@ -29,15 +24,187 @@ st.set_page_config(
 
 st.markdown("""
 <style>
-    .main { background-color: #0f1117; }
-    .stApp { background-color: #0f1117; color: #e0e0e0; }
-    .section-header {
-        font-size: 18px; font-weight: 600; color: #ffffff;
-        border-bottom: 1px solid #2a2d3a; padding-bottom: 8px; margin: 20px 0 12px;
+    @import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap');
+
+    /* Global */
+    html, body, [class*="css"] {
+        font-family: 'Outfit', sans-serif !important;
     }
+
+    /* Main App Background - Premium 3D gradient */
+    .stApp {
+        background: radial-gradient(circle at 15% 50%, rgba(20, 25, 45, 1), rgba(5, 8, 15, 1));
+        color: #e0e0e0;
+    }
+    
+    /* Sidebar */
+    [data-testid="stSidebar"] {
+        background: rgba(15, 18, 25, 0.6) !important;
+        backdrop-filter: blur(20px) !important;
+        border-right: 1px solid rgba(255, 255, 255, 0.05);
+    }
+
+    /* Main Container layout */
+    .main .block-container {
+        padding-top: 2rem !important;
+        max-width: 1200px;
+    }
+
+    /* Primary 3D Buttons */
+    div.stButton > button {
+        background: linear-gradient(135deg, #1ca0fb, #0855ff) !important;
+        color: white !important;
+        font-weight: 600 !important;
+        border: none !important;
+        border-radius: 12px !important;
+        box-shadow: 0 8px 20px rgba(8, 85, 255, 0.3), inset 0 2px 2px rgba(255,255,255,0.4), inset 0 -2px 5px rgba(0,0,0,0.2) !important;
+        transition: all 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275) !important;
+        padding: 0.5rem 1.5rem !important;
+    }
+    div.stButton > button:hover {
+        transform: translateY(-3px) scale(1.02) !important;
+        box-shadow: 0 12px 25px rgba(8, 85, 255, 0.4), inset 0 2px 2px rgba(255,255,255,0.5), inset 0 -2px 5px rgba(0,0,0,0.2) !important;
+    }
+    div.stButton > button:active {
+        transform: translateY(1px) scale(0.98) !important;
+        box-shadow: 0 4px 10px rgba(8, 85, 255, 0.3), inset 0 4px 4px rgba(0,0,0,0.3) !important;
+    }
+
+    /* Glassmorphic Metrics */
+    [data-testid="stMetric"] {
+        background: rgba(255, 255, 255, 0.03);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        backdrop-filter: blur(10px);
+        border-radius: 16px;
+        padding: 15px 20px !important;
+        box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.3), inset 0 1px 1px rgba(255,255,255,0.1);
+        transition: transform 0.3s ease, box-shadow 0.3s ease;
+    }
+    [data-testid="stMetric"]:hover {
+        transform: translateY(-5px);
+        box-shadow: 0 12px 40px 0 rgba(0, 0, 0, 0.4), inset 0 1px 1px rgba(255,255,255,0.2);
+        border-color: rgba(255, 255, 255, 0.15);
+    }
+    [data-testid="stMetricValue"] {
+        font-weight: 700 !important;
+        font-size: 2.4rem !important;
+        background: linear-gradient(135deg, #ffffff, #a0a5b5);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+    }
+    [data-testid="stMetricLabel"] {
+        font-weight: 500 !important;
+        color: #9ba1b0 !important;
+        font-size: 1.05rem !important;
+    }
+
+    /* Glassmorphic Inputs */
+    .stTextInput > div > div > input {
+        background-color: rgba(25, 30, 45, 0.6) !important;
+        border: 1px solid rgba(255,255,255,0.1) !important;
+        color: #fff !important;
+        border-radius: 12px !important;
+        padding: 14px 18px !important;
+        box-shadow: inset 0 2px 5px rgba(0,0,0,0.3), 0 4px 15px rgba(0,0,0,0.1) !important;
+        transition: all 0.3s ease;
+        font-size: 1.15rem !important;
+        font-family: 'Courier New', Courier, monospace !important;
+    }
+    .stTextInput > div > div > input:focus {
+        border-color: #1ca0fb !important;
+        box-shadow: inset 0 2px 5px rgba(0,0,0,0.3), 0 0 20px rgba(28, 160, 251, 0.25) !important;
+        background-color: rgba(30, 35, 50, 0.8) !important;
+    }
+
+    /* Section Headers */
+    .section-header {
+        font-size: 24px; 
+        font-weight: 700; 
+        background: linear-gradient(90deg, #ffffff, #a0a5b5);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        border-bottom: 2px solid rgba(255, 255, 255, 0.08); 
+        padding-bottom: 10px; 
+        margin: 35px 0 20px;
+        letter-spacing: -0.5px;
+    }
+
+    /* 3D Suggestion Cards */
     .suggestion-card {
-        background: #1e2433; border: 1px solid #2a3550;
-        border-radius: 8px; padding: 14px; margin: 8px 0;
+        background: linear-gradient(145deg, rgba(30, 36, 51, 0.8), rgba(20, 25, 40, 0.9));
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        border-radius: 16px; 
+        padding: 24px; 
+        margin: 16px 0;
+        box-shadow: 0 10px 30px rgba(0,0,0,0.4), inset 0 1px 1px rgba(255,255,255,0.1);
+        transition: transform 0.3s ease, box-shadow 0.3s ease;
+    }
+    .suggestion-card:hover {
+        transform: translateY(-4px) scale(1.01);
+        box-shadow: 0 15px 40px rgba(0,0,0,0.5), inset 0 1px 2px rgba(255,255,255,0.2);
+        border-color: rgba(255, 255, 255, 0.15);
+    }
+
+    /* Tabs styling */
+    .stTabs [data-baseweb="tab-list"] {
+        gap: 8px;
+        background: rgba(0,0,0,0.2);
+        padding: 8px;
+        border-radius: 16px;
+        border: 1px solid rgba(255,255,255,0.05);
+        box-shadow: inset 0 2px 4px rgba(0,0,0,0.3);
+    }
+    .stTabs [data-baseweb="tab"] {
+        border-radius: 10px;
+        padding: 12px 20px !important;
+        background: transparent;
+        color: #9ba1b0;
+        font-weight: 600;
+        border: none !important;
+        transition: all 0.2s ease;
+    }
+    .stTabs [data-baseweb="tab"]:hover {
+        color: #fff;
+    }
+    .stTabs [aria-selected="true"] {
+        background: linear-gradient(180deg, rgba(255,255,255,0.15), rgba(255,255,255,0.05)) !important;
+        color: #fff !important;
+        box-shadow: 0 4px 15px rgba(0,0,0,0.2), inset 0 1px 1px rgba(255,255,255,0.2) !important;
+        border: 1px solid rgba(255,255,255,0.1) !important;
+    }
+    
+    /* Expander Elements */
+    .streamlit-expanderHeader {
+        background: linear-gradient(90deg, rgba(40,45,60,0.6), rgba(20,25,40,0.6)) !important;
+        border-radius: 12px !important;
+        border: 1px solid rgba(255,255,255,0.08) !important;
+        font-weight: 600 !important;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+    }
+    .streamlit-expanderContent {
+        border: 1px solid rgba(255,255,255,0.05);
+        border-top: none;
+        border-radius: 0 0 12px 12px;
+        background: rgba(10,12,20,0.4) !important;
+        box-shadow: inset 0 5px 10px rgba(0,0,0,0.2);
+    }
+
+    /* Dataframes */
+    [data-testid="stDataFrame"] {
+        border: 1px solid rgba(255,255,255,0.08);
+        border-radius: 14px;
+        overflow: hidden;
+        box-shadow: 0 10px 30px rgba(0,0,0,0.3);
+    }
+    
+    /* Image Wrappers (molecule viewer) */
+    [data-testid="stImage"] img {
+        border-radius: 16px;
+        box-shadow: 0 12px 40px rgba(0,0,0,0.5), inset 0 1px 1px rgba(255,255,255,0.1);
+        border: 1px solid rgba(255,255,255,0.1);
+        padding: 5px;
+        background: linear-gradient(135deg, rgba(255,255,255,0.05), rgba(255,255,255,0.01));
+        backdrop-filter: blur(10px);
     }
 </style>
 """, unsafe_allow_html=True)
@@ -124,7 +291,7 @@ def make_auc_chart(payload):
     return fig
 
 def render_sidebar(payload):
-    st.sidebar.markdown("## SafeDrug AI")
+    st.sidebar.markdown("## ToxiNetx AI")
     st.sidebar.markdown("Multi-task toxicity prediction with SHAP-guided molecular insights.")
     st.sidebar.markdown("---")
     if payload:
@@ -153,10 +320,12 @@ def render_lipinski(smiles):
     core    = data["core_passes"]
     v_color = "#1D9E75" if verdict == "Excellent" else "#EF9F27" if verdict == "Acceptable" else "#E24B4A"
     st.markdown(
-        f"""<div style="background:#1a1d27;border:1px solid #2a2d3a;border-radius:12px;
-                padding:16px 20px;margin-bottom:8px;">
+        f"""<div style="background:linear-gradient(145deg, rgba(30, 35, 45, 0.8), rgba(20, 23, 30, 0.9));
+                border:1px solid rgba(255,255,255,0.08);border-radius:16px;
+                padding:20px;margin-bottom:12px;
+                box-shadow:0 10px 30px rgba(0,0,0,0.4), inset 0 1px 1px rgba(255,255,255,0.05);">
             <div style="display:flex;justify-content:space-between;align-items:center;
-                        margin-bottom:14px;">
+                        margin-bottom:16px;">
                 <div>
                     <span style="font-size:15px;font-weight:600;color:#fff;">
                         Lipinski's Rule of Five</span>
@@ -180,8 +349,12 @@ def render_lipinski(smiles):
         bg     = "#0d2b1e" if r["pass"] else "#2b0d0d"
         border = "#1D9E7544" if r["pass"] else "#E24B4A44"
         st.markdown(
-            f"""<div style="background:{bg};border:1px solid {border};
-                    border-radius:8px;padding:10px 12px;">
+            f"""<div style="background:linear-gradient(145deg, {bg}dd, {bg}aa);border:1px solid {border};
+                    border-radius:12px;padding:14px;
+                    box-shadow: 0 6px 15px rgba(0,0,0,0.2), inset 0 1px 1px rgba(255,255,255,0.1);
+                    transition: transform 0.2s; cursor: default;"
+                    onmouseover="this.style.transform='translateY(-3px)'"
+                    onmouseout="this.style.transform='none'">
                 <div style="display:flex;justify-content:space-between;align-items:center;">
                     <span style="font-size:11px;color:#888;">{r['rule']}</span>
                     <span style="font-size:13px;font-weight:700;color:{color};">{icon}</span>
@@ -338,11 +511,13 @@ def render_comparison_tab(payload):
             medium = sum(1 for r in results.values() if r["risk_label"] == "Medium")
             avg    = sum(r["prob"] for r in results.values()) / len(results)
             st.markdown(
-                f"""<div style="background:#1a1d27;border:1px solid {color}44;
-                    border-radius:10px;padding:14px;margin-bottom:10px;">
-                    <div style="font-size:14px;font-weight:600;color:{color};
-                        margin-bottom:8px;">{label}</div>
-                    <div style="display:flex;gap:16px;font-size:13px;color:#ccc;">
+                f"""<div style="background:linear-gradient(145deg, rgba(30,35,45,0.8), rgba(20,23,30,0.9));
+                    border:1px solid {color}44;
+                    border-radius:16px;padding:18px;margin-bottom:16px;
+                    box-shadow: 0 8px 30px rgba(0,0,0,0.3), inset 0 1px 1px {color}33;">
+                    <div style="font-size:15px;font-weight:700;color:{color};
+                        margin-bottom:10px;">{label}</div>
+                    <div style="display:flex;gap:16px;font-size:14px;color:#ccc;">
                         <span>High: <strong style="color:#E24B4A;">{high}</strong></span>
                         <span>Medium: <strong style="color:#EF9F27;">{medium}</strong></span>
                         <span>Avg: <strong style="color:#fff;">{avg:.2f}</strong></span>
@@ -739,7 +914,7 @@ def render_single_tab(payload, demo_choice):
 
     st.markdown("---")
     st.caption(
-        "SafeDrug AI · Trained on Tox21 (7,831 compounds, 12 assay endpoints) · "
+        "ToxiNet AI · Trained on Tox21 (7,831 compounds, 12 assay endpoints) · "
         "SHAP TreeExplainer for molecular interpretability · For research use only."
     )
 
@@ -946,7 +1121,7 @@ def main():
     demo_choice = render_sidebar(payload)
 
     st.markdown("""
-    <h1 style='color:#ffffff;margin-bottom:4px;'>SafeDrug AI</h1>
+    <h1 style='color:#ffffff;margin-bottom:4px;'>ToxiNet AI</h1>
     <p style='color:#888;margin-top:0;'>
     Multi-task toxicity prediction · SHAP explainability · Biological pathway analysis
     </p>""", unsafe_allow_html=True)

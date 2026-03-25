@@ -1,7 +1,4 @@
-"""
-Local Ketcher server — serves Ketcher static files on localhost:8080
-Run with: python ketcher_server.py
-"""
+
 import os
 import urllib.request
 import zipfile

@@ -1,9 +1,3 @@
-"""
-SafeDrug AI — Phase 1 + 2
-Feature engineering + multi-task toxicity model training.
-Run this once to generate trained models.
-Usage: python train.py --data tox21.csv
-"""
 
 import argparse
 import os
@@ -17,7 +11,6 @@ import pandas as pd
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import roc_auc_score
 from xgboost import XGBClassifier
-from imblearn.over_sampling import SMOTE
 
 # RDKit imports
 from rdkit import Chem
@@ -87,8 +80,8 @@ def build_feature_matrix(df: pd.DataFrame):
     for i, row in df.iterrows():
         feat, names = smiles_to_features(row["smiles"])
         if feat is not None:
-            # Replace inf/nan descriptors with 0
-            feat = np.nan_to_num(feat, nan=0.0, posinf=0.0, neginf=0.0)
+            # Replace inf descriptors with NaN, letting XGBoost handle NaNs naturally
+            feat[np.isinf(feat)] = np.nan
             feat = np.clip(feat, -1e6, 1e6)
             features.append(feat)
             valid_idx.append(i)
@@ -111,7 +104,6 @@ def train_endpoint(X, y_raw, endpoint_name):
     # Only use rows that have a label for this endpoint
     labeled_mask = y_raw != -1
     X_lab = X[labeled_mask]
-    X_lab = np.clip(np.nan_to_num(X_lab, nan=0.0, posinf=0.0, neginf=0.0), -1e6, 1e6)
     y_lab = y_raw[labeled_mask]
 
     if len(y_lab) < 50 or y_lab.sum() < 10:
@@ -121,13 +113,6 @@ def train_endpoint(X, y_raw, endpoint_name):
     X_tr, X_te, y_tr, y_te = train_test_split(
         X_lab, y_lab, test_size=0.2, random_state=42, stratify=y_lab
     )
-
-    # Balance classes with SMOTE
-    try:
-        smote = SMOTE(random_state=42, k_neighbors=min(5, y_tr.sum() - 1))
-        X_tr, y_tr = smote.fit_resample(X_tr, y_tr)
-    except Exception:
-        pass  # If SMOTE fails (too few positives), train without it
 
     scale_pos = (y_tr == 0).sum() / max((y_tr == 1).sum(), 1)
 
