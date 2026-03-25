@@ -9,3 +9,5 @@ matplotlib
 streamlit
 plotly
 Pillow
+reportlab
+kaleido
