@@ -1128,25 +1128,16 @@ def main():
 
     if payload is None:
         st.info("Models not found. Initialising dynamic training sequence (this takes ~60 seconds)...")
-        import subprocess
-        import sys
+        import train
         try:
             with st.spinner("Training XGBoost models on Tox21 and evaluating SHAP explainer..."):
-                res = subprocess.run(
-                    [sys.executable, "train.py", "--data", "tox21.csv"], 
-                    capture_output=True, 
-                    text=True, 
-                    check=True
-                )
+                train.main("tox21.csv")
             st.success("Models trained successfully! Reloading...")
             st.rerun()
-        except subprocess.CalledProcessError as e:
-            st.error(f"Training failed with exit code: {e.returncode}")
-            st.code(e.stderr, language="bash")
-            st.code(e.stdout, language="bash")
-            return
         except Exception as e:
             st.error(f"Training failed: {e}")
+            import traceback
+            st.code(traceback.format_exc(), language="python")
             return
 
     tab_single, tab_compare, tab_batch, tab_sketch = st.tabs([
