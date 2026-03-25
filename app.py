@@ -1129,10 +1129,11 @@ def main():
     if payload is None:
         st.info("Models not found. Initialising dynamic training sequence (this takes ~60 seconds)...")
         import subprocess
+        import sys
         try:
             with st.spinner("Training XGBoost models on Tox21 and evaluating SHAP explainer..."):
                 res = subprocess.run(
-                    ["python", "train.py", "--data", "tox21.csv"], 
+                    [sys.executable, "train.py", "--data", "tox21.csv"], 
                     capture_output=True, 
                     text=True, 
                     check=True
