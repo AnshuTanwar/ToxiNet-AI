@@ -1131,12 +1131,21 @@ def main():
         import subprocess
         try:
             with st.spinner("Training XGBoost models on Tox21 and evaluating SHAP explainer..."):
-                subprocess.run(["python", "train.py", "--data", "tox21.csv"], check=True)
+                res = subprocess.run(
+                    ["python", "train.py", "--data", "tox21.csv"], 
+                    capture_output=True, 
+                    text=True, 
+                    check=True
+                )
             st.success("Models trained successfully! Reloading...")
             st.rerun()
+        except subprocess.CalledProcessError as e:
+            st.error(f"Training failed with exit code: {e.returncode}")
+            st.code(e.stderr, language="bash")
+            st.code(e.stdout, language="bash")
+            return
         except Exception as e:
             st.error(f"Training failed: {e}")
-            st.code("python train.py --data tox21.csv", language="bash")
             return
 
     tab_single, tab_compare, tab_batch, tab_sketch = st.tabs([

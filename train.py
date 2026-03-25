@@ -126,7 +126,7 @@ def train_endpoint(X, y_raw, endpoint_name):
         use_label_encoder=False,
         eval_metric="auc",
         random_state=42,
-        n_jobs=-1,
+        n_jobs=2,
         verbosity=0,
     )
     model.fit(X_tr, y_tr)
