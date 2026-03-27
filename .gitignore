@@ -33,4 +33,4 @@ dist/
  
 # Python bytecode
 *.pyo
-*.pyd
+*.pyd*.csv

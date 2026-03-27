@@ -14,6 +14,10 @@ from explainer import (
     risk_level, lipinski_rules
 )
 from reporter import generate_pdf_report
+from molecular_intelligence import (
+    load_similarity_index, tanimoto_search,
+    compute_extended_properties, interpret_similarity,
+)
 
 st.set_page_config(
     page_title="ToxiNet AI",
@@ -220,7 +224,14 @@ DEMO_MOLECULES = {
 @st.cache_resource
 def get_models():
     try:
-        return load_models("models/safedrug_models.pkl")
+        payload = load_models("models/safedrug_models.pkl")
+        # Load similarity index — non-blocking, graceful if not yet built
+        try:
+            idx = load_similarity_index("models/similarity_index.pkl")
+            payload["similarity_index"] = idx
+        except Exception:
+            payload["similarity_index"] = None
+        return payload
     except FileNotFoundError:
         return None
 
@@ -298,6 +309,17 @@ def render_sidebar(payload):
         avg_auc = np.mean(list(payload["aucs"].values()))
         st.sidebar.metric("Models loaded", len(payload["models"]))
         st.sidebar.metric("Avg ROC-AUC", f"{avg_auc:.3f}")
+        # Similarity index status
+        idx = payload.get("similarity_index")
+        if idx:
+            n = len(idx["entries"])
+            zinc = any(e.get("from_zinc") for e in idx["entries"][:50])
+            st.sidebar.success(
+                f"Similarity index: {n:,} molecules"
+                + (" + ZINC250k" if zinc else "")
+            )
+        else:
+            st.sidebar.warning("Similarity index not built.\nRun: `python build_index.py --tox21 tox21.csv`")
         st.sidebar.markdown("---")
     st.sidebar.markdown("### Demo molecules")
     demo_choice = st.sidebar.selectbox(
@@ -715,6 +737,320 @@ def render_batch_tab(payload):
     )
 
 
+def _render_extended_properties(smiles: str):
+    """Feature 4 — QED, SAS, Fsp3, ADMET panel."""
+    ext = compute_extended_properties(smiles)
+    if ext is None:
+        return
+
+    st.markdown(
+        '<div class="section-header">Extended Drug Profile — QED · SAS · ADMET</div>',
+        unsafe_allow_html=True
+    )
+
+    def _col_card(col, label, value_str, sub, color):
+        col.markdown(
+            f"""<div style="background:#1a1d27;border:1px solid #2a2d3a;
+                border-radius:10px;padding:14px;text-align:center;">
+                <div style="font-size:10px;color:#888;text-transform:uppercase;
+                    letter-spacing:.06em;margin-bottom:4px;">{label}</div>
+                <div style="font-size:26px;font-weight:700;color:{color};">{value_str}</div>
+                <div style="font-size:11px;color:{color};margin-top:3px;">{sub}</div>
+            </div>""",
+            unsafe_allow_html=True
+        )
+
+    c1, c2, c3, c4 = st.columns(4)
+
+    # QED
+    if ext["qed"] is not None:
+        qc = "#1D9E75" if ext["qed"] >= 0.67 else "#EF9F27" if ext["qed"] >= 0.5 else "#E24B4A"
+        _col_card(c1, "QED Score", f"{ext['qed']:.3f}", ext["qed_label"], qc)
+    else:
+        _col_card(c1, "QED Score", "—", "N/A", "#888")
+
+    # SAS
+    if ext["sas"] is not None:
+        sc = "#1D9E75" if ext["sas"] < 3 else "#EF9F27" if ext["sas"] < 6 else "#E24B4A"
+        _col_card(c2, "Synthetic Accessibility", f"{ext['sas']:.1f}/10",
+                  f"{ext['sas_label']} to synthesise", sc)
+    else:
+        _col_card(c2, "Synthetic Accessibility", "—", "N/A", "#888")
+
+    # Fsp3
+    fc = "#1D9E75" if ext["fsp3"] >= 0.4 else "#EF9F27" if ext["fsp3"] >= 0.2 else "#E24B4A"
+    _col_card(c3, "Fsp3", f"{ext['fsp3']:.2f}",
+              "3D character" if ext["fsp3"] >= 0.4 else "Flat scaffold", fc)
+
+    # Heavy atoms summary
+    _col_card(c4, "Structure",
+              str(ext["n_heavyatoms"]),
+              f"{ext['n_rings']} rings · {ext['n_stereo']} stereocentres", "#aaa")
+
+    st.markdown("<div style='margin-top:10px;'></div>", unsafe_allow_html=True)
+
+    col_admet, col_alerts = st.columns([2, 3])
+
+    with col_admet:
+        st.markdown("<p style='font-size:13px;font-weight:500;color:#ccc;margin-bottom:8px;'>"
+                    "ADMET profile</p>", unsafe_allow_html=True)
+        for label, value, good, gc, bad, bc in [
+            ("GI Absorption",   ext["gi_absorption"],  "High",   "#1D9E75", "Low",     "#E24B4A"),
+            ("BBB Penetration", ext["bbb_penetrant"],  "Likely", "#1D9E75", "Unlikely","#E24B4A"),
+            ("Bioavailability", "Pass" if ext["veber_pass"] else "Fail",
+             "Pass", "#1D9E75", "Fail", "#E24B4A"),
+        ]:
+            color = gc if value == good else (bc if value == bad else "#EF9F27")
+            st.markdown(
+                f"""<div style="display:flex;justify-content:space-between;align-items:center;
+                    padding:6px 0;border-bottom:1px solid #1e2130;font-size:12px;">
+                    <span style="color:#aaa;">{label}</span>
+                    <span style="color:{color};font-weight:600;">{value}</span>
+                </div>""",
+                unsafe_allow_html=True
+            )
+        if ext.get("scaffold"):
+            st.markdown(
+                f"""<div style="margin-top:8px;padding:8px 10px;background:#0f1117;
+                    border-radius:6px;border:1px solid #1e2130;">
+                    <div style="font-size:10px;color:#666;margin-bottom:3px;">Murcko scaffold</div>
+                    <div style="font-size:11px;font-family:monospace;color:#7eb8f7;
+                        word-break:break-all;">{ext['scaffold']}</div>
+                </div>""",
+                unsafe_allow_html=True
+            )
+
+    with col_alerts:
+        st.markdown("<p style='font-size:13px;font-weight:500;color:#ccc;margin-bottom:8px;'>"
+                    "Structural alerts</p>", unsafe_allow_html=True)
+        all_clear = (not ext["cyp_alerts"] and
+                     not ext["pains_alerts"] and
+                     not ext["mutagenicity"])
+        if all_clear:
+            st.markdown(
+                """<div style="background:#0d2b1e;border:1px solid #1D9E7544;border-radius:8px;
+                    padding:12px;font-size:13px;color:#1D9E75;">
+                    No structural alerts detected — clean profile</div>""",
+                unsafe_allow_html=True
+            )
+        else:
+            for alert in ext["mutagenicity"]:
+                st.markdown(
+                    f"""<div style="background:#2b0d0d;border:1px solid #E24B4A44;
+                        border-radius:6px;padding:8px 12px;margin-bottom:5px;font-size:12px;">
+                        <span style="color:#E24B4A;font-weight:600;">⚠ Mutagenicity:</span>
+                        <span style="color:#ccc;"> {alert}</span></div>""",
+                    unsafe_allow_html=True
+                )
+            for alert in ext["pains_alerts"]:
+                st.markdown(
+                    f"""<div style="background:#2b1a0d;border:1px solid #EF9F2744;
+                        border-radius:6px;padding:8px 12px;margin-bottom:5px;font-size:12px;">
+                        <span style="color:#EF9F27;font-weight:600;">PAINS:</span>
+                        <span style="color:#ccc;"> {alert}</span></div>""",
+                    unsafe_allow_html=True
+                )
+            if ext["cyp_alerts"]:
+                st.markdown(
+                    f"""<div style="background:#1a1d27;border:1px solid #378ADD44;
+                        border-radius:6px;padding:8px 12px;margin-bottom:5px;font-size:12px;">
+                        <span style="color:#378ADD;font-weight:600;">CYP inhibition risk:</span>
+                        <span style="color:#ccc;"> {', '.join(ext['cyp_alerts'])}</span></div>""",
+                    unsafe_allow_html=True
+                )
+
+
+def _render_similarity_search(smiles: str, toxicity_results: dict, payload: dict):
+    """Feature 2 — Tanimoto similarity search with ZINC250k enrichment."""
+    sim_index = payload.get("similarity_index")
+
+    st.markdown(
+        '<div class="section-header">'
+        'Experimental Evidence — Similar Compounds in Training Data'
+        '</div>',
+        unsafe_allow_html=True
+    )
+
+    if not sim_index:
+        st.info(
+            "Similarity index not built yet. Run this once in your terminal:\n\n"
+            "`python build_index.py --tox21 tox21.csv`\n\n"
+            "With ZINC250k enrichment (recommended):\n\n"
+            "`python build_index.py --tox21 tox21.csv "
+            "--zinc 250k_rndm_zinc_drugs_clean_3.csv`"
+        )
+        return
+
+    sim_results   = tanimoto_search(smiles, sim_index, top_k=5)
+    interp        = interpret_similarity(sim_results, toxicity_results)
+    n_indexed     = len(sim_index["entries"])
+    zinc_enriched = any(e.get("from_zinc") for e in sim_index["entries"][:100])
+
+    # Index info badge
+    badge_text = (
+        f"{n_indexed:,} molecules indexed"
+        + (" · ZINC250k enriched" if zinc_enriched else " · Tox21 only")
+    )
+    st.markdown(
+        f"""<div style="font-size:11px;color:#7eb8f7;font-family:monospace;
+            margin-bottom:12px;">{badge_text}</div>""",
+        unsafe_allow_html=True
+    )
+
+    # ── Evidence summary row ──────────────────────────────────────────────────
+    supported   = interp["supported"]
+    conflicting = interp["conflicting"]
+    novel       = interp["novel"]
+
+    if supported or conflicting or novel:
+        cs, cc, cn = st.columns(3)
+        for col, count, label, sub, bg, border in [
+            (cs, len(supported),   "predictions supported",
+             "by experimental evidence", "#0d2b1e", "#1D9E7544"),
+            (cc, len(conflicting), "predictions uncertain",
+             "limited experimental data", "#2b1a0d", "#EF9F2744"),
+            (cn, len(novel),       "worth investigating",
+             "similar compounds toxic", "#1a1d27", "#378ADD44"),
+        ]:
+            fc = "#1D9E75" if bg == "#0d2b1e" else "#EF9F27" if bg == "#2b1a0d" else "#378ADD"
+            col.markdown(
+                f"""<div style="background:{bg};border:1px solid {border};
+                    border-radius:8px;padding:10px;text-align:center;">
+                    <div style="font-size:24px;font-weight:700;color:{fc};">{count}</div>
+                    <div style="font-size:11px;color:{fc};">{label}</div>
+                    <div style="font-size:10px;color:#555;margin-top:2px;">{sub}</div>
+                </div>""",
+                unsafe_allow_html=True
+            )
+        st.markdown("<div style='margin-top:8px;'></div>", unsafe_allow_html=True)
+
+        if supported:
+            with st.expander(f"Supported predictions ({len(supported)})"):
+                for item in supported:
+                    st.markdown(
+                        f"**{item['endpoint']}** — {item['prob']:.1%} risk · "
+                        f"{item['evidence']} · Confidence: **{item['confidence']}**"
+                    )
+        if conflicting:
+            with st.expander(f"Uncertain — review carefully ({len(conflicting)})"):
+                for item in conflicting:
+                    st.markdown(
+                        f"**{item['endpoint']}** — {item['prob']:.1%} risk · "
+                        f"{item['evidence']} · _{item['note']}_"
+                    )
+        if novel:
+            with st.expander(f"Worth investigating despite low model score ({len(novel)})"):
+                for item in novel:
+                    st.markdown(
+                        f"**{item['endpoint']}** — Model: {item['prob']:.1%} · "
+                        f"{item['evidence']} · _{item['note']}_"
+                    )
+
+    # ── Similarity result cards ───────────────────────────────────────────────
+    if not sim_results:
+        st.info("No results found in index.")
+        return
+
+    st.markdown(
+        f"**Top {len(sim_results)} most similar compounds in training data:**"
+    )
+
+    for i, hit in enumerate(sim_results):
+        sim_pct   = hit["similarity_pct"]
+        sim_color = "#1D9E75" if sim_pct >= 70 else "#EF9F27" if sim_pct >= 40 else "#888"
+        label     = (
+            f"#{i+1}  {hit['mol_id']}  ·  {sim_pct:.1f}% similar"
+            + ("  ·  Identical molecule" if hit["is_identical"] else f"  ·  {hit['note']}")
+        )
+
+        with st.expander(label, expanded=(i == 0)):
+            c_mol, c_info = st.columns([1, 2])
+
+            with c_mol:
+                ref_mol = Chem.MolFromSmiles(hit["smiles"])
+                if ref_mol:
+                    st.image(
+                        Draw.MolToImage(ref_mol, size=(240, 180)),
+                        use_container_width=True
+                    )
+                st.code(hit["smiles"][:60] + ("..." if len(hit["smiles"]) > 60 else ""))
+
+            with c_info:
+                # Similarity bar
+                st.markdown(
+                    f"""<div style="margin-bottom:12px;">
+                        <div style="display:flex;justify-content:space-between;
+                            font-size:12px;color:#888;margin-bottom:4px;">
+                            <span>Tanimoto similarity</span>
+                            <span style="color:{sim_color};font-weight:700;">
+                                {sim_pct:.1f}%</span>
+                        </div>
+                        <div style="background:#1a1d27;height:6px;border-radius:3px;">
+                            <div style="width:{min(sim_pct,100)}%;background:{sim_color};
+                                height:6px;border-radius:3px;"></div>
+                        </div>
+                        <div style="font-size:11px;color:#555;margin-top:3px;">
+                            {hit['note']}</div>
+                    </div>""",
+                    unsafe_allow_html=True
+                )
+
+                # Known toxicity from Tox21 assays
+                if hit["toxic_eps"]:
+                    st.markdown(
+                        f"""<div style="background:#2b0d0d;border:1px solid #E24B4A33;
+                            border-radius:6px;padding:8px 10px;margin-bottom:6px;">
+                            <div style="font-size:11px;color:#E24B4A;font-weight:600;
+                                margin-bottom:3px;">Confirmed TOXIC in Tox21:</div>
+                            <div style="font-size:11px;color:#ccc;font-family:monospace;">
+                                {' · '.join(hit['toxic_eps'])}</div>
+                        </div>""",
+                        unsafe_allow_html=True
+                    )
+                if hit["safe_eps"]:
+                    shown = hit["safe_eps"][:6]
+                    more  = f" +{len(hit['safe_eps'])-6} more" if len(hit["safe_eps"]) > 6 else ""
+                    st.markdown(
+                        f"""<div style="background:#0d2b1e;border:1px solid #1D9E7533;
+                            border-radius:6px;padding:8px 10px;margin-bottom:6px;">
+                            <div style="font-size:11px;color:#1D9E75;font-weight:600;
+                                margin-bottom:3px;">Confirmed SAFE in Tox21:</div>
+                            <div style="font-size:11px;color:#ccc;font-family:monospace;">
+                                {' · '.join(shown)}{more}</div>
+                        </div>""",
+                        unsafe_allow_html=True
+                    )
+
+                # QED / SAS / logP (from ZINC250k if enriched, else RDKit)
+                props = {}
+                if hit.get("qed")  is not None: props["QED"]  = f"{hit['qed']:.3f}"
+                if hit.get("sas")  is not None: props["SAS"]  = f"{hit['sas']:.2f}"
+                if hit.get("logp") is not None: props["logP"] = f"{hit['logp']:.2f}"
+                if props:
+                    src = "ZINC250k" if hit.get("from_zinc") else "RDKit"
+                    prop_line = "  ·  ".join(f"**{k}** {v}" for k, v in props.items())
+                    st.markdown(
+                        f"<div style='font-size:12px;color:#7a9bb5;margin-top:4px;'>"
+                        f"{prop_line}  <span style='color:#3d5a73;font-size:10px;'>"
+                        f"({src})</span></div>",
+                        unsafe_allow_html=True
+                    )
+
+    with st.expander("How Tanimoto similarity works"):
+        st.markdown("""
+**Tanimoto coefficient** compares two Morgan fingerprints as overlapping bit sets.
+Score 1.0 = identical molecules. Score ≥ 0.7 = same scaffold, minor variation.
+
+**Why this matters:** When our model predicts high SR-ARE risk *and* structurally
+similar Tox21 compounds are experimentally confirmed SR-ARE toxic, the prediction
+is backed by real assay data — not just a model extrapolation.
+
+**ZINC250k enrichment:** If the index was built with ZINC250k, each Tox21 compound
+is also annotated with its QED, SAS, and logP from 250,000 curated drug-like
+molecules, giving richer property context for each hit.
+        """)
+
+
 def render_single_tab(payload, demo_choice):
     default_smiles = (
         DEMO_MOLECULES.get(demo_choice, "")
@@ -768,6 +1104,9 @@ def render_single_tab(payload, demo_choice):
         unsafe_allow_html=True
     )
     render_lipinski(smiles)
+
+    # ── Feature 4: Extended Drug Profile (QED · SAS · ADMET) ─────────────────
+    _render_extended_properties(smiles)
 
     # Radar + molecule
     st.markdown('<div class="section-header">Toxicity fingerprint</div>', unsafe_allow_html=True)
@@ -862,6 +1201,9 @@ def render_single_tab(payload, demo_choice):
                     if feat["shap"] > 0:
                         fname = feat["name"].replace("morgan_", "Fingerprint bit ")
                         st.markdown(f"- `{fname[:35]}` → +{feat['shap']:.4f}")
+
+    # ── Feature 2: Tanimoto Similarity Search ────────────────────────────────
+    _render_similarity_search(smiles, results, payload)
 
     # Modification suggestions
     st.markdown(
